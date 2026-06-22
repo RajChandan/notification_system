@@ -10,20 +10,18 @@ from sqlalchemy import (
     Text,
     Enum as Sqlenum,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
+from app.db.base import Base
 from datetime import datetime
 import uuid
-
-Base = declarative_base()
 
 
 class NotificationOutbox(Base):
     __tablename__ = "notification_outbox"
 
-    outbox_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    outbox_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     notification_id = Column(
-        UUID(as_uuid=True), ForeignKey("notifications.notification_id"), nullable=False
+        String(36), ForeignKey("notifications.notification_id"), nullable=False
     )
     payload = Column(JSON, nullable=False)
     published = Column(Boolean, default=False)

@@ -10,14 +10,12 @@ from sqlalchemy import (
     Text,
     Enum as Sqlenum,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 import uuid
 
 from .utils import Channel, NotificationStatus, PriorityLevel
-
-Base = declarative_base()
+from app.db.base import Base
 
 
 class NotificationStatus(str, Enum):
@@ -37,11 +35,11 @@ class PriorityLevel(str, Enum):
 class Notification(Base):
     __tablename__ = "notifications"
 
-    notification_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    notification_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, nullable=False)
     channel = Column(Sqlenum(Channel), nullable=False)
     template_id = Column(
-        UUID(as_uuid=True), ForeignKey("templates.template_id"), nullable=False
+        String(36), ForeignKey("templates.template_id"), nullable=False
     )
     payload = Column(JSON, nullable=False)
     status = Column(Sqlenum(NotificationStatus), default=NotificationStatus.PENDING)
