@@ -11,7 +11,7 @@ router = APIRouter()
 @router.post("/")
 async def send_notification(payload: dict, db: AsyncSession = Depends(get_db)):
     service = NotificationService(db)
-
+    print(f" created notification with payload: {payload}")
     return await service.create_notification(
         user_id="123", template_type="transactional", channel="email", payload=payload
     )

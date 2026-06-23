@@ -21,36 +21,44 @@ class NotificationService:
         payload: dict,
         scheduled_at=None,
     ) -> Notification:
-
+        print(
+            f"Creating notification for user_id: {user_id}, template_type: {template_type}, channel: {channel}, payload: {payload}"
+        )
         async with self.db.begin():
             template = await self._get_template(template_type, channel)
+            print(
+                f"Fetched template: {template.template_id} for type: {template_type} and channel: {channel}"
+            )
             rendered_content = TemplateEngine.render(template.content, payload)
+            print(f"Rendered content: {rendered_content}")
 
             notification = Notification(
                 user_id=user_id,
                 channel=channel,
                 payload={**payload, "rendered_content": rendered_content},
                 status=NotificationStatus.PENDING,
+                template_id=template.template_id,
             )
             self.db.add(notification)
             await self.db.flush()
+            print(f"Created notification with ID: {notification.notification_id}")
 
-            outbox_payload = {
-                "notification_id": str(notification.id),
-                "user_id": user_id,
-                "channel": channel.value,
-                "recipient": payload.get("recipient"),
-                "content": rendered_content,
-                "metadata": payload.get("metadata", {}),
-            }
+            # outbox_payload = {
+            #     "notification_id": str(notification.notification_id),
+            #     "user_id": user_id,
+            #     "channel": channel,
+            #     "recipient": payload.get("recipient"),
+            #     "content": rendered_content,
+            #     "metadata": payload.get("metadata", {}),
+            # }
 
-            outbox = NotificationOutbox(
-                notification_id=notification.id,
-                payload=outbox_payload,
-                published_flag=False,
-            )
+            # outbox = NotificationOutbox(
+            #     notification_id=notification.id,
+            #     payload=outbox_payload,
+            #     published_flag=False,
+            # )
 
-            self.db.add(outbox)
+            # self.db.add(outbox)
 
             return notification
 
