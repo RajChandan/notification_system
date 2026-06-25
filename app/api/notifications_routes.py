@@ -4,14 +4,19 @@ from fastapi import Depends
 
 from app.dependencies import get_db
 from app.services.notification_service import NotificationService
+from app.schemas.notifications import NotificationCreateRequest
 
 router = APIRouter()
 
 
 @router.post("/")
-async def send_notification(payload: dict, db: AsyncSession = Depends(get_db)):
+async def send_notification(
+    request: NotificationCreateRequest, db: AsyncSession = Depends(get_db)
+):
     service = NotificationService(db)
-    print(f" created notification with payload: {payload}")
-    return await service.create_notification(
-        user_id="123", template_type="transactional", channel="email", payload=payload
-    )
+    notification = await service.create_notification(request)
+    print(f" created notification with payload: {request}")
+    return {
+        "notification_id": str(notification.notification_id),
+        "status": notification.status.value,
+    }

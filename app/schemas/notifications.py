@@ -7,7 +7,7 @@ from app.models.notifications import Channel, PriorityLevel
 
 class NotificationCreateRequest(BaseModel):
     user_id: str
-    template_name: str
+    template_type: str
     channel: Channel
     recipient: str
     variables: dict[str, Any]
