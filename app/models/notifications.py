@@ -15,6 +15,7 @@ from datetime import datetime
 import uuid
 
 from .utils import Channel, NotificationStatus, PriorityLevel
+from .templates import Template
 from app.db.base import Base
 
 
@@ -35,7 +36,9 @@ class PriorityLevel(str, Enum):
 class Notification(Base):
     __tablename__ = "notifications"
 
-    notification_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    notification_id = Column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
     user_id = Column(String, nullable=False)
     channel = Column(Sqlenum(Channel), nullable=False)
     template_id = Column(
