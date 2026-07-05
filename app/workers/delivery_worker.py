@@ -1,53 +1,80 @@
+import asyncio
 import json
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from aiokafka import AIOKafkaConsumer
+from app.core.config import KAFKA_BOOTSTRAP_SERVERS, NOTIFICATION_TOPIC
+from app.db.session import AsyncSessionLocal
+from app.models.notifications import Notification, NotificationStatus
+from app.models.utils import Channel
 from app.providers.factory import DeliveryProviderFactory
-
-from ..models.utils import Channel, NotificationStatus
-from ..models.notifications import Notification
 
 
 class DeliveryWorker:
-    def __init__(self, db: AsyncSession, kafka_consumer, redis_client):
-        self.db = db
-        self.kafka_consumer = kafka_consumer
-        self.redis = redis_client
+    def __init__(self):
+        self.consumer = AIOKafkaConsumer(
+            NOTIFICATION_TOPIC,
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+            group_id="notification-delivery-workers",
+            enable_auto_commit=False,
+        )
 
     async def start(self):
-        async for message in self.kafka_consumer:
-            event = json.loads(message.value.decode())
+        await self.consumer.start()
 
-            await self.process_event(event)
+        try:
+            async for message in self.consumer:
+                event = json.loads(message.value.decode("utf-8"))
+
+                await self.process_event(event)
+
+                await self.consumer.commit()
+
+        finally:
+            await self.consumer.stop()
 
     async def process_event(self, event: dict):
-        notification_id = event.get("notification_id")
-        idempotency_key = f"notification:sent:{notification_id}"
-
-        already_processed = await self.redis.get(idempotency_key)
-
-        if already_processed:
-            return
-
-        channel = Channel(event.get("channel"))
+        notification_id = event["notification_id"]
+        channel = event["channel"]
+        recipient = event["recipient"]
+        content = event["content"]
+        metadata = event.get("metadata", {})
 
         provider = DeliveryProviderFactory.get_provider(channel)
 
-        success = await provider.send()
+        async with AsyncSessionLocal() as db:
+            notification = await db.get(Notification, notification_id)
 
-        if success:
-            await self.redis.set(idempotency_key, "1", ex=86400)
-            await self._mark_sent(notification_id)
+            if not notification:
+                print(f"Notification not found : {notification_id}")
 
-        else:
-            self._mark_failed(notification_id)
+            if notification.status == NotificationStatus.SENT:
+                print(f"Notification already sent : {notification_id}")
+                return
 
-    async def _mark_sent(self, notification_id: str):
-        notification = await self.db.get(Notification, notification_id)
-        notification.status = NotificationStatus.SENT
-        await self.db.commit()
+            try:
+                success = await provider.send(recipient, content, metadata)
+                if success:
+                    notification.status = NotificationStatus.SENT
+                    print(f"Notification sent successfully : {notification_id}")
+                else:
+                    notification.status = NotificationStatus.FAILED
+                    notification.retry_count += 1
+                    print(f"Notification failed to send : {notification_id}")
 
-    async def _mark_failed(self, notification_id: str):
-        notification = await self.db.get(Notification, notification_id)
-        notification.status = NotificationStatus.FAILED
-        notification.retry_count += 1
-        await self.db.commit()
+                await db.commit()
+
+            except Exception as e:
+                print(f"Delivery Failed : {str(e)}")
+                notification.status = NotificationStatus.FAILED
+                notification.retry_count += 1
+
+                await db.commit()
+
+
+async def main():
+    worker = DeliveryWorker()
+    await worker.start()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
