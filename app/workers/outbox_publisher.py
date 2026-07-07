@@ -6,7 +6,9 @@ from sqlalchemy import select
 
 from app.core.config import KAFKA_BOOTSTRAP_SERVERS, NOTIFICATION_TOPIC
 from app.db.session import AsyncSessionLocal
-from app.models.notifications import NotificationOutbox
+
+# from app.models.notifications import NotificationOutbox
+from app.models.outbox import NotificationOutbox
 
 
 class OutboxPublisher:

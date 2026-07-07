@@ -15,6 +15,8 @@ from app.db.base import Base
 from datetime import datetime
 import uuid
 
+from .notifications import Notification
+
 
 class NotificationOutbox(Base):
     __tablename__ = "notification_outbox"
@@ -29,4 +31,4 @@ class NotificationOutbox(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     published_at = Column(DateTime, nullable=True)
 
-    notification = relationship("Notification")
+    notification = relationship(Notification, back_populates="outbox")

@@ -51,3 +51,6 @@ class Notification(Base):
     scheduled_at = Column(DateTime, default=datetime.utcnow)
 
     template = relationship("Template")
+    outbox = relationship(
+        "NotificationOutbox", back_populates="notification", uselist=False
+    )
