@@ -1,12 +1,15 @@
 import asyncio
 import json
 
+from redis.asyncio import Redis
 from aiokafka import AIOKafkaConsumer
 from app.core.config import KAFKA_BOOTSTRAP_SERVERS, NOTIFICATION_TOPIC
 from app.db.session import AsyncSessionLocal
 from app.models.notifications import Notification, NotificationStatus
 from app.models.utils import Channel
 from app.providers.factory import DeliveryProviderFactory
+
+redis = Redis(host="localhost", port=6380, decode_responses=True)
 
 
 class DeliveryWorker:
@@ -52,6 +55,12 @@ class DeliveryWorker:
                 return
 
             try:
+                idempotency_key = f"notification:sent:{notification_id}"
+                locked = await redis.set(
+                    idempotency_key, "processing", nx=True, ex=86400
+                )
+                if not locked:
+                    print(f"Duplicate Notification skipped : {notification_id}")
                 success = await provider.send(recipient, content, metadata)
                 if success:
                     notification.status = NotificationStatus.SENT
