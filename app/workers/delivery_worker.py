@@ -2,14 +2,19 @@ import asyncio
 import json
 
 from redis.asyncio import Redis
-from aiokafka import AIOKafkaConsumer
-from app.core.config import KAFKA_BOOTSTRAP_SERVERS, NOTIFICATION_TOPIC
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from app.core.config import (
+    KAFKA_BOOTSTRAP_SERVERS,
+    NOTIFICATION_TOPIC,
+    NOTIFICATION_DLQ_TOPIC,
+    MAX_RETRY_COUNT,
+)
 from app.db.session import AsyncSessionLocal
 from app.models.notifications import Notification, NotificationStatus
 from app.models.utils import Channel
 from app.providers.factory import DeliveryProviderFactory
 
-redis = Redis(host="localhost", port=6380, decode_responses=True)
+# redis = Redis(host="localhost", port=6380, decode_responses=True)
 
 
 class DeliveryWorker:
@@ -20,10 +25,12 @@ class DeliveryWorker:
             group_id="notification-delivery-workers",
             enable_auto_commit=False,
         )
+        self.producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
+        self.redis = Redis(host="localhost", port=6380, decode_responses=True)
 
     async def start(self):
         await self.consumer.start()
-
+        await self.producer.start()
         try:
             async for message in self.consumer:
                 event = json.loads(message.value.decode("utf-8"))
@@ -34,50 +41,99 @@ class DeliveryWorker:
 
         finally:
             await self.consumer.stop()
+            await self.producer.stop()
+            await self.redis.close()
 
     async def process_event(self, event: dict):
         notification_id = event["notification_id"]
-        channel = event["channel"]
-        recipient = event["recipient"]
-        content = event["content"]
-        metadata = event.get("metadata", {})
-
-        provider = DeliveryProviderFactory.get_provider(channel)
+        # channel = event["channel"]
+        # recipient = event["recipient"]
+        # content = event["content"]
+        # metadata = event.get("metadata", {})
+        idempotency_key = f"notification:sent:{notification_id}"
 
         async with AsyncSessionLocal() as db:
             notification = await db.get(Notification, notification_id)
 
             if not notification:
-                print(f"Notification not found : {notification_id}")
+                await self.publish_to_dlq(event=event, reason="notification_not_found")
+                return
 
             if notification.status == NotificationStatus.SENT:
-                print(f"Notification already sent : {notification_id}")
+                print(f"Already sent : {notification_id}")
+                return
+
+            locked = await self.redis.set(idempotency_key, "processing", nx=True, ex=60)
+
+            if not locked:
+                print(f"duplicate skipped : {notification_id}")
                 return
 
             try:
-                idempotency_key = f"notification:sent:{notification_id}"
-                locked = await redis.set(
-                    idempotency_key, "processing", nx=True, ex=86400
+                channel = Channel(event["channel"])
+                provider = DeliveryProviderFactory.get_provider(channel)
+
+                success = await provider.send(
+                    recipient=event["recipient"],
+                    content=event["content"],
+                    metadata=event.get("metadata", {}),
                 )
-                if not locked:
-                    print(f"Duplicate Notification skipped : {notification_id}")
-                success = await provider.send(recipient, content, metadata)
+
                 if success:
                     notification.status = NotificationStatus.SENT
-                    print(f"Notification sent successfully : {notification_id}")
-                else:
-                    notification.status = NotificationStatus.FAILED
-                    notification.retry_count += 1
-                    print(f"Notification failed to send : {notification_id}")
+                    await self.redis.set(idempotency_key, "sent", ex=3600)
+                    await db.commit()
+                    print(f"Notification sent : {notification_id}")
+                    return
 
-                await db.commit()
+                await self.handle_failure(
+                    db=db,
+                    notification=notification,
+                    event=event,
+                    reason="provider_return_false",
+                    idempotency_key=idempotency_key,
+                )
 
             except Exception as e:
-                print(f"Delivery Failed : {str(e)}")
-                notification.status = NotificationStatus.FAILED
-                notification.retry_count += 1
+                await self.handle_failure(
+                    db=db,
+                    notification=notification,
+                    event=event,
+                    reason=str(e),
+                    idempotency_key=idempotency_key,
+                )
 
-                await db.commit()
+    async def handle_failure(
+        self,
+        db,
+        notification: Notification,
+        event: dict,
+        reason: str,
+        idempotency_key: str,
+    ):
+        notification.retry_count += 1
+        if notification.retry_count >= MAX_RETRY_COUNT:
+            notification.status = NotificationStatus.FAILED
+
+            await self.publish_to_dlq(event=event, reason=reason)
+            print(f"moved to dlq : {notification.notification_id} reason : {reason}")
+
+        else:
+            notification.status = NotificationStatus.RETRYING
+            print(
+                f"marked for retry : {notification.notification_id} retry_count : {notification.retry_count}"
+            )
+
+        await self.redis.delete(idempotency_key)
+        await db.commit()
+
+    async def publish_to_dlq(self, event: dict, reason: str):
+        dlq_payload = {**event, "dlq_reason": reason}
+        await self.producer.send_and_wait(
+            NOTIFICATION_DLQ_TOPIC,
+            key=event.get("notification_id", "unknown").encode("utf-8"),
+            value=json.dumps(dlq_payload).encode("utf-8"),
+        )
 
 
 async def main():
