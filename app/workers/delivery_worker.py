@@ -1,6 +1,6 @@
 import asyncio
 import json
-
+from datetime import datetime, timedelta
 from redis.asyncio import Redis
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from app.core.config import (
@@ -13,6 +13,7 @@ from app.core.config import (
 from app.db.session import AsyncSessionLocal
 from app.models.notifications import Notification, NotificationStatus
 from app.models.utils import Channel
+from app.models.outbox import NotificationOutbox
 from app.providers.factory import DeliveryProviderFactory
 
 # redis = Redis(host="localhost", port=6380, decode_responses=True)
@@ -118,18 +119,47 @@ class DeliveryWorker:
             notification.status = NotificationStatus.FAILED
 
             await self.publish_to_dlq(
-                event=event, reason=reason, retry_count=current_attempt
+                event=event,
+                reason=reason,
+                retry_count=current_attempt,
+                retry_count=current_attempt,
             )
-            print(f"moved to dlq : {notification.notification_id} reason : {reason}")
-
-        else:
-            notification.status = NotificationStatus.RETRYING
+            await self.redis.delete(idempotency_key)
+            await db.commit()
             print(
-                f"marked for retry : {notification.notification_id} retry_count : {notification.retry_count}"
+                f"notification moved to dlq : {notification.notification_id} reason : {reason} attempt : {current_attempt}"
             )
+            return
+
+        delay_seconds = RETRY_DELAY_SECONDS.get(current_attempt, 60)
+        retry_at = datetime.utcnow() + timedelta(seconds=delay_seconds)
+        notification.status = NotificationStatus.RETRYING
+
+        retry_payload = {
+            "notification_id": str(notification.notification_id),
+            "user_id": event.get("user_id"),
+            "channel": event["channel"],
+            "recipient": event["recipient"],
+            "content": event["content"],
+            "metadata": event.get("metadata", {}),
+        }
+
+        retry_outbox = NotificationOutbox(
+            notification_id=notification.notification_id,
+            payload=retry_payload,
+            published=False,
+            attempt=current_attempt,
+            available_at=retry_at,
+        )
+
+        db.add(retry_outbox)
 
         await self.redis.delete(idempotency_key)
         await db.commit()
+
+        print(
+            f"Retry scheduled : id : {notification.notification_id}, attempt : {current_attempt} retry_at : {retry_at.isoformat()} reason : {reason}"
+        )
 
     async def publish_to_dlq(self, event: dict, reason: str):
         dlq_payload = {**event, "dlq_reason": reason}
