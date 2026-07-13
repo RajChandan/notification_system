@@ -1,6 +1,6 @@
 import asyncio
 import json
-
+from datetime import datetime
 from aiokafka import AIOKafkaProducer
 from sqlalchemy import select
 
@@ -15,22 +15,23 @@ class OutboxPublisher:
     def __init__(self):
         self.producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
 
-    async def start(self):
+    async def start(self) -> None:
         await self.producer.start()
 
         try:
             while True:
-                await self.publish_pending_outbox()
-                await asyncio.sleep(5)
+                published_count = await self.publish_pending_outbox()
+                if published_count == 0:
+                    await asyncio.sleep(5)
 
         finally:
             await self.producer.stop()
 
-    async def publish_pending_outbox(self):
+    async def publish_pending_outbox(self) -> int:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 select(NotificationOutbox)
-                .where(NotificationOutbox.published == False)
+                .where(NotificationOutbox.published.is_(False),NotificationOutbox.available_at <= datetime.utcnow()).order_by(NotificationOutbox.available_at)
                 .limit(100)
             )
 
@@ -41,18 +42,23 @@ class OutboxPublisher:
                 return
 
             for row in rows:
-                payload = row.payload
+                event = {**row.payload,"attemp":row.attempt,"outbox_id":str(row.outbox_id)}
+
+                
                 await self.producer.send_and_wait(
                     NOTIFICATION_TOPIC,
                     key=str(row.notification_id).encode("utf-8"),
-                    value=json.dumps(payload).encode("utf-8"),
+                    value=json.dumps(event).encode("utf-8"),
                 )
 
                 row.published = True
+                row.published_at = datetime.utcnow()
 
             await db.commit()
 
-            print(f"Published {len(rows)} messages to kafka")
+            if rows:
+                print(f"Published {len(rows)} messages to kafka")
+            return len(rows)
 
 
 async def main():

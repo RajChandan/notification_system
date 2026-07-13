@@ -8,6 +8,7 @@ from app.core.config import (
     NOTIFICATION_TOPIC,
     NOTIFICATION_DLQ_TOPIC,
     MAX_RETRY_COUNT,
+    RETRY_DELAY_SECONDS,
 )
 from app.db.session import AsyncSessionLocal
 from app.models.notifications import Notification, NotificationStatus
@@ -112,10 +113,13 @@ class DeliveryWorker:
         idempotency_key: str,
     ):
         notification.retry_count += 1
-        if notification.retry_count >= MAX_RETRY_COUNT:
+        current_attempt = notification.retry_count
+        if current_attempt >= MAX_RETRY_COUNT:
             notification.status = NotificationStatus.FAILED
 
-            await self.publish_to_dlq(event=event, reason=reason)
+            await self.publish_to_dlq(
+                event=event, reason=reason, retry_count=current_attempt
+            )
             print(f"moved to dlq : {notification.notification_id} reason : {reason}")
 
         else:

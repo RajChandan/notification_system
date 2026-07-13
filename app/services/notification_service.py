@@ -7,6 +7,7 @@ from ..models.templates import Template
 from .template_engine import TemplateEngine
 from ..models.utils import NotificationStatus
 from ..schemas.notifications import NotificationCreateRequest
+from datetime import datetime
 
 
 class NotificationService:
@@ -58,6 +59,8 @@ class NotificationService:
                 notification_id=notification.notification_id,
                 payload=outbox_payload,
                 published=False,
+                attempts=0,
+                available_at=datetime.utcnow(),
             )
 
             self.db.add(outbox)
