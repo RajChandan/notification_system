@@ -52,7 +52,19 @@ class DeliveryWorker:
         # recipient = event["recipient"]
         # content = event["content"]
         # metadata = event.get("metadata", {})
+        processing_key = f"notification:processing:{notification_id}"
+        sent_key = f"notification:sent:{notification_id}"
         idempotency_key = f"notification:sent:{notification_id}"
+
+        already_sent = await self.redis.exists(sent_key)
+        if already_sent:
+            print(f"Already sent : {notification_id}")
+            return
+
+        lock_acquired = await self.redis.set(processing_key, "1", nx=True, ex=300)
+        if not lock_acquired:
+            print(f"Already being processed : {notification_id}")
+            return
 
         async with AsyncSessionLocal() as db:
             notification = await db.get(Notification, notification_id)
@@ -161,8 +173,13 @@ class DeliveryWorker:
             f"Retry scheduled : id : {notification.notification_id}, attempt : {current_attempt} retry_at : {retry_at.isoformat()} reason : {reason}"
         )
 
-    async def publish_to_dlq(self, event: dict, reason: str):
-        dlq_payload = {**event, "dlq_reason": reason}
+    async def publish_to_dlq(self, event: dict, reason: str, retry_count: int) -> None:
+        dlq_payload = {
+            **event,
+            "retry_count": retry_count,
+            "dlq_reason": reason,
+            "failed_at": datetime.utcnow().isoformat(),
+        }
         await self.producer.send_and_wait(
             NOTIFICATION_DLQ_TOPIC,
             key=event.get("notification_id", "unknown").encode("utf-8"),
