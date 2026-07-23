@@ -5,7 +5,7 @@ from typing import Any, Dict
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-DEFAULT_API_URL = "http://localhost:8000/api/v1/notifications"
+DEFAULT_API_URL = "http://localhost:8000/api/v1/notifications/"
 
 SAMPLE_PAYLOAD: Dict[str, Any] = {
     "user_id": "user_123",

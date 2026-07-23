@@ -20,7 +20,7 @@ import uuid
 class NotificationOutbox(Base):
     __tablename__ = "notification_outbox"
 
-    outbox_id = Column(String(36), primary_key=True, default=uuid.uuid4)
+    outbox_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     notification_id = Column(
         String(36), ForeignKey("notifications.notification_id"), nullable=False
     )
