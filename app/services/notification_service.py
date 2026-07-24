@@ -59,7 +59,7 @@ class NotificationService:
                 notification_id=notification.notification_id,
                 payload=outbox_payload,
                 published=False,
-                attempts=0,
+                attempt=0,
                 available_at=datetime.utcnow(),
             )
 

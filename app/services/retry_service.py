@@ -15,7 +15,7 @@ class RetryService:
         self, db: AsyncSession, notification: Notification, event: dict, reason: str
     ) -> None:
         notification.retry_count += 1
-        current_attempt = notification.retry_attempt
+        current_attempt = notification.retry_count
 
         if current_attempt >= self.max_retry_count:
             notification.status = NotificationStatus.FAILED

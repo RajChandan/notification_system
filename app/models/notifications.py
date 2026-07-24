@@ -49,7 +49,8 @@ class Notification(Base):
     priority = Column(Sqlenum(PriorityLevel), default=PriorityLevel.MEDIUM)
     retry_count = Column(Integer, default=0)
     scheduled_at = Column(DateTime, default=datetime.utcnow)
-
+    last_error = Column(Text, nullable=True)
+    failed_at = Column(DateTime, nullable=True)
     template = relationship("Template")
     outbox = relationship(
         "NotificationOutbox", back_populates="notification", uselist=False
