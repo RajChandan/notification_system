@@ -30,6 +30,7 @@ class NotificationOutbox(Base):
     available_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     published_at = Column(DateTime, nullable=True)
+    topic = Column(String(255), nullable=False, default="notifications.delivery")
     notification = relationship("Notification", back_populates="outbox")
 
     # outbox_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
