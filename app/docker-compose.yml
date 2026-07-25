@@ -23,5 +23,4 @@ services:
     ports:
       - "6380:6379"
 
-
-docker exec -it notification-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+# docker exec -it notification-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
