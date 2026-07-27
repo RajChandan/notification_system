@@ -1,25 +1,59 @@
-import json
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any
 
-from aiokafka import AIOKafkaProducer
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.notifications import Notification
+from app.models.notifications_dlq import NotificationDLQ, DLQStatus
+from app.models.outbox import NotificationOutbox
 
 
 class DLQService:
-    def __init__(self, producer: AIOKafkaProducer, topic: str):
-        self.producer = producer
-        self.topic = topic
+    DLQ_TOPIC = "notifications.dlq"
 
-    async def publish(self, event: dict, reason: str, retry_count: int) -> None:
-        notification_id = str(event.get("notification_id", "unknown"))
-        payload = {
-            **event,
-            "dlq_reason": reason,
-            "retry_count": retry_count,
-            "failed_at": datetime.utcnow().isoformat(),
+    async def create_dlq_record(
+        self,
+        db: AsyncSession,
+        notification: Notification,
+        event: dict[str, Any],
+        failure_reason: str,
+        error_type: str | None = None,
+        original_outbox_id: str | None = None,
+    ) -> NotificationDLQ:
+        now = datetime.now(timezone.utc)
+
+        dlq_record = NotificationDLQ(
+            notification_id=str(notification.notification_id),
+            channel=notification.channel,
+            payload=event,
+            failure_reason=failure_reason,
+            error_type=error_type,
+            retry_count=notification.retry_count,
+            original_outbox_id=original_outbox_id,
+            status=DLQStatus.PENDING,
+        )
+
+        db.add(dlq_record)
+
+        await db.flush()
+
+        dlq_event = {
+            "dlq_id": str(dlq_record.dlq_id),
+            "notification_id": str(notification.notification_id),
+            "failure_reason": failure_reason,
+            "error_type": error_type,
+            "retry_count": notification.retry_count,
+            "payload": event,
+            "failed_at": now.isoformat(),
         }
 
-        await self.producer.send_and_wait(
-            self.topic,
-            key=notification_id.encode("utf-8"),
-            value=json.dumps(payload).encode("utf-8"),
+        dlq_outbox = NotificationOutbox(
+            notification_id=str(notification.notification_id),
+            payload=dlq_event,
+            topic=self.DLQ_TOPIC,
+            published=False,
+            attempt=notification.retry_count,
+            available_at=now,
         )
+
+        db.add(dlq_outbox)
+        return dlq_record

@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notifications import Notification, NotificationStatus
 from app.models.outbox import NotificationOutbox
+from app.models.notifications_dlq import NotificationDLQ, DLQStatus
 
 
 class RetryService:
@@ -11,6 +12,54 @@ class RetryService:
         self.retry_delays = retry_delays
         self.dlq_service = dlq_service
 
+    async def move_to_dlq(
+        self,
+        db,
+        notification,
+        event: dict,
+        failure_reason: str,
+        error_type: str | None = None,
+        original_outbox_id: str | None = None,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        notification.status = NotificationStatus.FAILED
+        notification.last_error = failure_reason
+        notification.failed_at = now
+
+        dlq_record = NotificationDLQ(
+            notification_id=notification.notification_id,
+            channel=notification.channel,
+            payload=event,
+            failure_reason=failure_reason,
+            error_type=error_type,
+            retry_count=notification.retry_count,
+            original_outbox_id=original_outbox_id,
+            status=DLQStatus.PENDING,
+        )
+
+        dlq_event = {
+            "notification_id": notification.notification_id,
+            "failure_reason": failure_reason,
+            "error_type": error_type,
+            "retry_count": notification.retry_count,
+            "payload": event,
+            "failed_at": now.isoformat(),
+        }
+
+        dlq_outbox = NotificationOutbox(
+            notification_id=notification.notification_id,
+            payload=dlq_event,
+            topic="notifications.dlq",
+            published=False,
+            attempt=notification.retry_count,
+            available_at=now,
+        )
+
+        db.add(dlq_record)
+        db.add(dlq_outbox)
+
+        await db.commit()
+
     async def handle_failure(
         self, db: AsyncSession, notification: Notification, event: dict, reason: str
     ) -> None:
@@ -18,18 +67,9 @@ class RetryService:
         current_attempt = notification.retry_count
 
         if current_attempt >= self.max_retry_count:
-            notification.status = NotificationStatus.FAILED
-
-            await self.dlq_service.publish(
-                event=event, reason=reason, retry_count=current_attempt
+            await self.move_to_dlq(
+                db=db, notification=notification, event=event, failure_reson=reason
             )
-
-            await db.commit()
-
-            print(
-                f"moved to dlq {notification.notification_id},attempt:{current_attempt},reason={reason}"
-            )
-
             return
 
         delay_seconds = self.retry_delays.get(current_attempt, 60)
