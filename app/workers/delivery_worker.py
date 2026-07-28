@@ -37,9 +37,7 @@ class DeliveryWorker:
         self.delivery_service = DeliveryService()
         self.idempotency_service = IdempotencyService(self.redis)
 
-        self.dlq_service = DLQService(
-            producer=self.producer, topic=NOTIFICATION_DLQ_TOPIC
-        )
+        self.dlq_service = DLQService()
 
         self.retry_service = RetryService(
             max_retry_count=MAX_RETRY_COUNT,
@@ -102,7 +100,12 @@ class DeliveryWorker:
 
                 except Exception as e:
                     await self.retry_service.handle_failure(
-                        db=db, notification=notification, event=event, reason=str(e)
+                        db=db,
+                        notification=notification,
+                        event=event,
+                        reason=str(e),
+                        error_type=type(e).__name__,
+                        original_outbox_id=event.get("outbox_id"),
                     )
                     return
 
@@ -112,6 +115,8 @@ class DeliveryWorker:
                         notification=notification,
                         event=event,
                         reason="provider_return_false",
+                        error_type="DeliveryFailed",
+                        original_outbox_id=event.get("outbox_id"),
                     )
                     return
 
