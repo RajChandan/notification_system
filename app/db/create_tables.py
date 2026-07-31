@@ -7,6 +7,7 @@ from app.db.base import Base
 from app.models.notifications import Notification
 from app.models.outbox import NotificationOutbox
 from app.models.templates import Template
+from app.models.notifications_dlq import NotificationDLQ
 
 
 async def main():
