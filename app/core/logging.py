@@ -35,6 +35,9 @@ class JsonFormatter(logging.Formatter):
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
+            "file": record.filename,
+            "function": record.funcName,
+            "line": record.lineno,
             "message": record.getMessage(),
             "service": getattr(record, "service", "notification-service"),
         }
