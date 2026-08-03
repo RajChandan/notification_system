@@ -1,3 +1,4 @@
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from ..models.utils import Channel
@@ -8,6 +9,8 @@ from .template_engine import TemplateEngine
 from ..models.utils import NotificationStatus
 from ..schemas.notifications import NotificationCreateRequest
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationService:
@@ -23,7 +26,9 @@ class NotificationService:
             print(
                 f"Creating notification for user: {request.user_id}, template: {request.template_type}, channel: {request.channel}, recipient: {request.recipient}"
             )
+
             template = await self._get_template(request.template_type, request.channel)
+
             print(
                 f"Fetched template: {template.template_id} for type: {request.template_type} and channel: {request.channel}"
             )
@@ -65,6 +70,23 @@ class NotificationService:
 
             self.db.add(outbox)
 
+            logger.info(
+                "Notification created",
+                extra={
+                    "event": "notification_created",
+                    "notification_id": str(notification.notification_id),
+                    "user_id": request.user_id,
+                    "channel": request.channel.value,
+                    "template_name": request.template_name,
+                    "priority": request.priority.value,
+                    "scheduled_at": (
+                        request.scheduled_at.isoformat()
+                        if request.scheduled_at
+                        else None
+                    ),
+                },
+            )
+
             return notification
 
     async def _get_template(self, template_type: str, channel: Channel) -> Template:
@@ -80,5 +102,13 @@ class NotificationService:
             raise ValueError(
                 f"Template not found for type {template_type} and channel {channel}"
             )
+        logger.warning(
+            "Notification Template not found",
+            extra={
+                "event": "template_not_found",
+                "template_name": template,
+                "channel": channel.value,
+            },
+        )
 
         return template
