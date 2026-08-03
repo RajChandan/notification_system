@@ -5,6 +5,8 @@ from app.api.notifications_routes import router
 from app.core.logging import configure_logging
 from app.db.session import engine
 
+from app.middleware.request_logging import RequestLoggingMiddleware
+
 configure_logging(log_level="INFO")
 
 logger = logging.getLogger(__name__)
@@ -38,5 +40,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Notification Service", version="1.0.0", lifespan=lifespan)
+
+app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(router, prefix="/api/v1/notifications", tags=["notifications"])
