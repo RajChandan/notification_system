@@ -1,8 +1,11 @@
+import logging
 import json
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.outbox import NotificationOutbox
+
+logging = logging.getLogger(__name__)
 
 
 class OutboxPublisher:

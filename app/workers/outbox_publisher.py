@@ -1,3 +1,4 @@
+import logging
 import asyncio
 import json
 from datetime import datetime
@@ -10,6 +11,8 @@ from app.db.session import AsyncSessionLocal
 # from app.models.notifications import NotificationOutbox
 from app.models.outbox import NotificationOutbox
 
+logger = logging.getLogger(__name__)
+
 
 class OutboxPublisher:
     def __init__(self):
@@ -17,6 +20,10 @@ class OutboxPublisher:
 
     async def start(self) -> None:
         await self.producer.start()
+        logger.info(
+            "Outbox publisher started",
+            extra={"event": "outbox_publisher_started", "topic": NOTIFICATION_TOPIC},
+        )
 
         try:
             while True:
@@ -31,7 +38,11 @@ class OutboxPublisher:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 select(NotificationOutbox)
-                .where(NotificationOutbox.published.is_(False),NotificationOutbox.available_at <= datetime.utcnow()).order_by(NotificationOutbox.available_at)
+                .where(
+                    NotificationOutbox.published.is_(False),
+                    NotificationOutbox.available_at <= datetime.utcnow(),
+                )
+                .order_by(NotificationOutbox.available_at)
                 .limit(100)
             )
 
@@ -42,9 +53,12 @@ class OutboxPublisher:
                 return
 
             for row in rows:
-                event = {**row.payload,"attemp":row.attempt,"outbox_id":str(row.outbox_id)}
+                event = {
+                    **row.payload,
+                    "attemp": row.attempt,
+                    "outbox_id": str(row.outbox_id),
+                }
 
-                
                 await self.producer.send_and_wait(
                     NOTIFICATION_TOPIC,
                     key=str(row.notification_id).encode("utf-8"),
@@ -58,6 +72,13 @@ class OutboxPublisher:
 
             if rows:
                 print(f"Published {len(rows)} messages to kafka")
+                logger.info(
+                    "Outbox batch published",
+                    extra={
+                        "event": "outbox_batch_published",
+                        "message_count": len(rows),
+                    },
+                )
             return len(rows)
 
 
