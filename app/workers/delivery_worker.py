@@ -1,3 +1,4 @@
+import logging
 import asyncio
 import json
 from datetime import datetime, timedelta
@@ -22,6 +23,8 @@ from app.services.idempotency_service import IdempotencyService
 from app.services.retry_service import RetryService
 
 # redis = Redis(host="localhost", port=6380, decode_responses=True)
+
+logger = logging.getLogger(__name__)
 
 
 class DeliveryWorker:
@@ -53,7 +56,17 @@ class DeliveryWorker:
                 event = json.loads(message.value.decode("utf-8"))
 
                 try:
-
+                    logger.info(
+                        "kafka message received",
+                        extra={
+                            "event": "delivery_message_received",
+                            "notification_id": event.get("notification_id"),
+                            "channel": event.get("channel"),
+                            "attempt": event.get("attempt", 0),
+                            "partition": message.partition,
+                            "offset": message.offset,
+                        },
+                    )
                     await self.process_event(event)
                 except Exception as e:
                     print(f"unexpected worker error : {e}")
@@ -71,6 +84,14 @@ class DeliveryWorker:
 
         if await self.idempotency_service.is_sent(notification_id):
             print(f"Already sent : skipping : {notification_id}")
+            logger.info(
+                "Duplicate notification skipped",
+                extra={
+                    "event": "duplicate_notification_skipped",
+                    "notification_id": notification_id,
+                    "reason": "already_sent",
+                },
+            )
             return
 
         lock_acquired = await self.idempotency_service.acquire_processing_lock(
@@ -79,6 +100,13 @@ class DeliveryWorker:
 
         if not lock_acquired:
             print(f"Already being processed : {notification_id}")
+            logger.info(
+                "Notification already being processed",
+                extra={
+                    "event": "notification_processing_locked",
+                    "notification_id": notification_id,
+                },
+            )
             return
 
         try:
@@ -107,6 +135,13 @@ class DeliveryWorker:
                         error_type=type(e).__name__,
                         original_outbox_id=event.get("outbox_id"),
                     )
+                    logger.exception(
+                        "Unexpected delivery worker error",
+                        extra={
+                            "event": "delivery_worker_error",
+                            "notification_id": event.get("notification_id"),
+                        },
+                    )
                     return
 
                 if not success:
@@ -118,6 +153,13 @@ class DeliveryWorker:
                         error_type="DeliveryFailed",
                         original_outbox_id=event.get("outbox_id"),
                     )
+                    logger.exception(
+                        "Unexpected delivery worker error",
+                        extra={
+                            "event": "delivery_worker_error",
+                            "notification_id": event.get("notification_id"),
+                        },
+                    )
                     return
 
                 notification.status = NotificationStatus.SENT
@@ -126,6 +168,15 @@ class DeliveryWorker:
 
                 await self.idempotency_service.mark_sent(notification_id)
                 print(f"Notification sent : {notification_id}")
+                logger.info(
+                    "Notification Delivered",
+                    extra={
+                        "event": "notification_delivered",
+                        "notification_id": notification_id,
+                        "channel": event["channel"],
+                        "attempt": event.get("attempt", 0),
+                    },
+                )
 
         finally:
             await self.idempotency_service.release_processing_lock(notification_id)

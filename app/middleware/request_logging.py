@@ -43,7 +43,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         duration_ms = (time.perf_counter() - start_time) * 1000
 
-        resonse.headers["x-request-id"] = request_id
+        response.headers["x-request-id"] = request_id
 
         logger.info(
             "HTTP request completed",
