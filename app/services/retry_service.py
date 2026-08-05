@@ -67,10 +67,13 @@ class RetryService:
         logger.error(
             "Notification moved to dlq",
             extra={
+                "event": "notification_moved_to_dlq",
                 "notfication_id": str(notification.notification_id),
                 "dlq_id": str(dlq_record.dlq_id),
                 "retry_count": notification.retry_count,
                 "failure_reason": failure_reason,
+                "channel": notification.channel.value,
+                "error_type": error_type,
             },
         )
 
@@ -149,17 +152,21 @@ class RetryService:
             logger.exception(
                 "failed to schedule notification retry",
                 extra={
+                    "event": "retry_schedule_failed",
                     "notification_id": str(notification.notification_id),
                     "attempt": current_attempt,
                 },
             )
 
             raise
-        logger.info(
+        logger.warning(
             "Notification retry scheduled",
             extra={
+                "event": "retry_scheduled",
                 "notification_id": str(notification.notification_id),
                 "attempt": current_attempt,
                 "retry_at": retry_at.isoformat(),
+                "channel": notification.channel.value,
+                "failure_reason": failure_reason,
             },
         )
