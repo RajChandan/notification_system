@@ -1,3 +1,5 @@
+import logging
+
 from datetime import datetime, timezone
 from typing import Any
 
@@ -5,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.notifications import Notification
 from app.models.notifications_dlq import NotificationDLQ, DLQStatus
 from app.models.outbox import NotificationOutbox
+
+logger = logging.getLogger(__name__)
 
 
 class DLQService:
@@ -30,6 +34,16 @@ class DLQService:
             retry_count=notification.retry_count,
             original_outbox_id=original_outbox_id,
             status=DLQStatus.PENDING,
+        )
+
+        logger.info(
+            "DLQ database record prepared",
+            extra={
+                "event": "dlq_record_created",
+                "dlq_id": str(dlq_record.dlq_id),
+                "notification_id": str(notification.notification_id),
+                "retry_count": notification.retry_count,
+            },
         )
 
         db.add(dlq_record)
