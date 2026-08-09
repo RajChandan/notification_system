@@ -14,3 +14,4 @@ def mask_phone(phone: str) -> str:
         return "***"
 
     return f"***{phone[-4:]}"
+       
