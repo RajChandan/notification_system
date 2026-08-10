@@ -22,6 +22,8 @@ from app.services.dlq_service import DLQService
 from app.services.idempotency_service import IdempotencyService
 from app.services.retry_service import RetryService
 
+from app.core.logging import configure_logging
+
 # redis = Redis(host="localhost", port=6380, decode_responses=True)
 
 logger = logging.getLogger(__name__)
@@ -182,7 +184,11 @@ class DeliveryWorker:
             await self.idempotency_service.release_processing_lock(notification_id)
 
 
-async def main():
+async def main() -> None:
+    configure_logging(log_level="INFO")
+    logger.info(
+        "Delivery worker process started", extra={"event": "delivery_worker_started"}
+    )
     worker = DeliveryWorker()
     await worker.start()
 
