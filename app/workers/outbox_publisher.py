@@ -10,6 +10,7 @@ from app.db.session import AsyncSessionLocal
 
 # from app.models.notifications import NotificationOutbox
 from app.models.outbox import NotificationOutbox
+from app.core.logging import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,11 @@ class OutboxPublisher:
             return len(rows)
 
 
-async def main():
+async def main() -> None:
+    configure_logging(log_level="INFO")
+    logger.info(
+        "Outbox publisher process started", extra={"event": "outbox_publisher_started"}
+    )
     publisher = OutboxPublisher()
     await publisher.start()
 
