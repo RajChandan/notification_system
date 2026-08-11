@@ -1,6 +1,8 @@
 import json
 import logging
 import sys
+from pathlib import Path
+from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
 from typing import Any
 
@@ -27,6 +29,12 @@ STANDARD_LOG_RECORD_FIELDS = {
     "process",
     "taskName",
 }
+
+
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+LOG_FILE = LOG_DIR / "notification.log"
 
 
 class JsonFormatter(logging.Formatter):
@@ -61,7 +69,12 @@ def configure_logging(log_level: str = "INFO") -> None:
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(JsonFormatter())
 
+    file_handler = RotatingFileHandler(
+        filename=LOG_FILE, maxBytes=20 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    )
+    file_handler.setFormatter(JsonFormatter())
     root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
 
     configure_uvicorn_logging()
 
