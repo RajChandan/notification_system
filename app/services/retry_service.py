@@ -97,7 +97,7 @@ class RetryService:
                 db=db,
                 notification=notification,
                 event=event,
-                failure_reson=reason,
+                failure_reason=reason,
                 error_type=error_type,
                 original_outbox_id=original_outbox_id,
             )
