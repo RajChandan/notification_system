@@ -23,4 +23,19 @@ services:
     ports:
       - "6380:6379"
 
+  postgres:
+    image: postgres:16
+    container_name: notification-postgres
+    environment:
+      POSTGRES_USER: notification_user
+      POSTGRES_PASSWORD: notification_password
+      POSTGRES_DB: notification_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - notification_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  notification_postgres_data:
+
 # docker exec -it notification-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
